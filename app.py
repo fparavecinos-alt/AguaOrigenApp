@@ -13,7 +13,7 @@ except Exception:
 
 st.set_page_config(page_title="Agua Origen - Sistema", page_icon="💧", layout="wide")
 
-# 2. CAPA DE DATOS (PERSISTENCIA EXCEL)
+# 2. CAPA DE DATOS
 def cargar_excel(archivo, columnas):
     if os.path.exists(archivo):
         try:
@@ -26,7 +26,7 @@ df_ventas = cargar_excel("datos_agua.xlsx", ['Fecha', 'Cliente', 'Celular', 'Can
 df_inv = cargar_excel("inventario.xlsx", ['Insumo', 'Cantidad_Actual'])
 df_repartidores = cargar_excel("repartidores.xlsx", ['Nombre', 'Usuario', 'Clave', 'DNI', 'Celular', 'Placa', 'Bidones_Planta', 'Estado'])
 
-# 3. NAVEGACIÓN LATERAL
+# 3. NAVEGACIÓN
 if img:
     st.sidebar.image(img, width=120)
 else:
@@ -76,27 +76,33 @@ elif rol == "Repartidor":
             entregados_total = df_ventas[(df_ventas['Repartidor'] == nombre_rep) & (df_ventas['Estado'] == 'Entregado')]['Cantidad'].sum()
             c1, c2 = st.columns(2)
             c1.metric("Bidones en Planta", f"{user_match.iloc[0]['Bidones_Planta']}")
-            c2.metric("Por Liquidar", f"{entregados_total}")
+            c2.metric("Bidones por Liquidar", f"{entregados_total}")
 
-            st.subheader("📋 Pedidos Pendientes")
+            st.subheader("📋 Mis Pedidos Pendientes")
             mis_pendientes = df_ventas[(df_ventas['Repartidor'] == nombre_rep) & (df_ventas['Estado'] == 'Pendiente')]
             
             for idx, row in mis_pendientes.iterrows():
                 with st.expander(f"📍 Cliente: {row['Cliente']} | {row['Cantidad']} Bidón(es)"):
-                    st.write(f"📞 WhatsApp: {row['Celular']}")
+                    st.write(f"📞 Celular Cliente: {row['Celular']}")
                     
-                    # --- SOLUCIÓN GPS UNIVERSAL (Google Maps URL API v1) ---
-                    # Esta URL es la recomendada para que el celular abra la APP automáticamente
-                    lat_lon = row['Ubicacion']
-                    # Link universal para Direcciones
-                    maps_universal_url = f"https://www.google.com/maps/dir/?api=1&destination={lat_lon}&travelmode=driving"
-                    
-                    st.link_button("🚀 INICIAR NAVEGACIÓN (GOOGLE MAPS)", maps_universal_url)
+                    # URL DE MAPS CORREGIDA (Protocolo de Navegación)
+                    maps_url = f"https://www.google.com/maps/dir/?api=1&destination={row['Ubicacion']}&travelmode=driving"
+                    st.link_button("🌐 INICIAR GPS EN GOOGLE MAPS", maps_url)
                     
                     st.markdown("---")
-                    if st.button(f"✅ Confirmar Entrega", key=f"ent_{idx}"):
+                    
+                    # NOTIFICACIÓN DE LLEGADA (PEDIDA POR EL USUARIO)
+                    msg_wa = f"Hola {row['Cliente']}, soy {nombre_rep} de Agua Origen. Estoy afuera de tu ubicación con tu pedido de {row['Cantidad']} bidones. ¡Te espero!"
+                    st.link_button("📲 AVISAR LLEGADA POR WHATSAPP", f"https://wa.me/51{row['Celular']}?text={msg_wa.replace(' ', '%20')}")
+                    
+                    if st.button(f"✅ Marcar Entrega como REALIZADA", key=f"ent_{idx}"):
                         df_ventas.at[idx, 'Estado'] = 'Entregado'
                         df_ventas.to_excel("datos_agua.xlsx", index=False)
+                        # Descuento de insumos
+                        for ins in ['Tapas', 'Etiquetas', 'Precintos termo encogibles']:
+                            df_inv.loc[df_inv['Insumo'] == ins, 'Cantidad_Actual'] -= row['Cantidad']
+                        df_inv.to_excel("inventario.xlsx", index=False)
+                        st.success("Entrega registrada.")
                         st.rerun()
         else:
             st.error("Credenciales incorrectas.")
@@ -125,12 +131,12 @@ elif rol == "Administrador":
                         n_u = pd.DataFrame([{'Nombre': f_nom, 'Usuario': f_user, 'Clave': f_pass, 'DNI': f_dni, 'Celular': f_cel, 'Placa': f_pla, 'Bidones_Planta': 0, 'Estado': 'Activo'}])
                         df_repartidores = pd.concat([df_repartidores, n_u], ignore_index=True)
                         df_repartidores.to_excel("repartidores.xlsx", index=False)
-                        st.session_state['msg_whatsapp'] = {'cel': f_cel, 'txt': f"Hola {f_nom}, has sido dado de ALTA en Agua Origen. Usuario: {f_user} | Clave: {f_pass} | Link: {URL_APP}"}
-                        st.success("Registrado correctamente.")
+                        st.session_state['alta_ok'] = {'cel': f_cel, 'msg': f"Bienvenido {f_nom}. Usuario: {f_user} | Clave: {f_pass} | Acceso: {URL_APP}"}
+                        st.success("Repartidor registrado con éxito.")
 
-            if 'msg_whatsapp' in st.session_state:
-                m = st.session_state['msg_whatsapp']
-                st.link_button("📲 Enviar Accesos por WhatsApp", f"https://wa.me/51{m['cel']}?text={m['txt'].replace(' ', '%20')}")
+            if 'alta_ok' in st.session_state:
+                a = st.session_state['alta_ok']
+                st.link_button(f"📲 Notificar ALTA a {a['cel']}", f"https://wa.me/51{a['cel']}?text={a['msg'].replace(' ', '%20')}")
 
             st.divider()
             for i, r in df_repartidores.iterrows():
@@ -140,9 +146,9 @@ elif rol == "Administrador":
                     if c3.button("Dar de BAJA", key=f"baja_{i}"):
                         df_repartidores.at[i, 'Estado'] = 'Inactivo'
                         df_repartidores.to_excel("repartidores.xlsx", index=False)
-                        st.warning(f"BAJA procesada para {r['Nombre']}.")
-                        msg_baja = f"Hola {r['Nombre']}, se te informa que has sido dado de BAJA del sistema Agua Origen."
-                        st.link_button("📲 Notificar Baja", f"https://wa.me/51{r['Celular']}?text={msg_baja.replace(' ', '%20')}")
+                        st.warning(f"BAJA de {r['Nombre']} procesada.")
+                        msg_b = f"Hola {r['Nombre']}, se te informa la BAJA del sistema Agua Origen."
+                        st.link_button("📲 Notificar BAJA", f"https://wa.me/51{r['Celular']}?text={msg_b.replace(' ', '%20')}")
                 else:
                     c2.write("🔴 Inactivo")
                     if c3.button("Reactivar", key=f"re_{i}"):
@@ -151,9 +157,25 @@ elif rol == "Administrador":
                         st.rerun()
 
         with t2:
-            st.subheader("Salida de Planta")
-            # ... (Lógica de carga planta)
+            st.subheader("Carga Planta")
+            if not df_repartidores.empty:
+                rep_s = st.selectbox("Elegir Repartidor", df_repartidores[df_repartidores['Estado'] == 'Activo']['Nombre'].tolist())
+                cant_c = st.number_input("Bidones cargados", min_value=1)
+                if st.button("Registrar Salida de Planta"):
+                    df_repartidores.loc[df_repartidores['Nombre'] == rep_s, 'Bidones_Planta'] += cant_c
+                    df_repartidores.to_excel("repartidores.xlsx", index=False)
+                    st.success(f"Carga registrada para {rep_s}")
 
         with t3:
             st.subheader("Liquidación de Envases")
-            # ... (Lógica de liquidación responsable del repartidor)
+            for idx_r, r_row in df_repartidores.iterrows():
+                v_nom = r_row['Nombre']
+                deuda = df_ventas[(df_ventas['Repartidor'] == v_nom) & (df_ventas['Estado'] == 'Entregado')]['Cantidad'].sum()
+                if deuda > 0:
+                    st.warning(f"{v_nom} debe retornar {deuda} envases vacíos.")
+                    if st.button(f"Completar Liquidación de {v_nom}", key=f"liq_{idx_r}"):
+                        df_ventas.loc[(df_ventas['Repartidor'] == v_nom) & (df_ventas['Estado'] == 'Entregado'), 'Estado'] = 'Completado'
+                        df_ventas.to_excel("datos_agua.xlsx", index=False)
+                        df_repartidores.at[idx_r, 'Bidones_Planta'] = 0
+                        df_repartidores.to_excel("repartidores.xlsx", index=False)
+                        st.rerun()

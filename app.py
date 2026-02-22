@@ -58,8 +58,6 @@ if rol == "Cliente (Pedidos)":
                 df_ventas = pd.concat([df_ventas, nuevo_p], ignore_index=True)
                 df_ventas.to_excel("datos_agua.xlsx", index=False)
                 st.success(f"¡Pedido recibido! El repartidor {asignado} te visitará pronto.")
-            else:
-                st.error("No hay repartidores activos disponibles.")
 
 # --- MÓDULO 2: PORTAL DEL REPARTIDOR ---
 elif rol == "Repartidor":
@@ -87,18 +85,20 @@ elif rol == "Repartidor":
                 with st.expander(f"📍 Cliente: {row['Cliente']} | {row['Cantidad']} Bidón(es)"):
                     st.write(f"📞 WhatsApp: {row['Celular']}")
                     
-                    # --- SOLUCIÓN GPS DEFINITIVA PARA MÓVILES ---
-                    # Usa el protocolo de navegación directa de Google Maps
-                    maps_url = f"https://www.google.com/maps/dir/?api=1&destination={row['Ubicacion']}&travelmode=driving"
-                    st.link_button("🌐 INICIAR NAVEGACIÓN GPS", maps_url)
+                    # --- SOLUCIÓN GPS DEFINITIVA PARA MÓVILES (PROTOCOLO NATIVO) ---
+                    # Este formato 'google.navigation:q=' fuerza la apertura de la APP instalada
+                    lat_lon = row['Ubicacion']
+                    link_pc = f"https://www.google.com/maps?q={lat_lon}"
+                    link_movil = f"google.navigation:q={lat_lon}"
+                    
+                    st.markdown(f'<a href="{link_movil}" style="text-decoration:none;"><button style="width:100%; padding:10px; background-color:#4CAF50; color:white; border:none; border-radius:5px;">🌐 ABRIR EN APP GOOGLE MAPS</button></a>', unsafe_allow_html=True)
+                    st.caption("Si estás en PC, usa el enlace de abajo:")
+                    st.link_button("🖥️ Ver en Navegador (PC)", link_pc)
                     
                     st.markdown("---")
                     if st.button(f"✅ Confirmar Entrega", key=f"ent_{idx}"):
                         df_ventas.at[idx, 'Estado'] = 'Entregado'
                         df_ventas.to_excel("datos_agua.xlsx", index=False)
-                        for ins in ['Tapas', 'Etiquetas', 'Precintos termo encogibles']:
-                            df_inv.loc[df_inv['Insumo'] == ins, 'Cantidad_Actual'] -= row['Cantidad']
-                        df_inv.to_excel("inventario.xlsx", index=False)
                         st.rerun()
         else:
             st.error("Credenciales incorrectas.")
@@ -127,41 +127,34 @@ elif rol == "Administrador":
                         n_u = pd.DataFrame([{'Nombre': f_nom, 'Usuario': f_user, 'Clave': f_pass, 'DNI': f_dni, 'Celular': f_cel, 'Placa': f_pla, 'Bidones_Planta': 0, 'Estado': 'Activo'}])
                         df_repartidores = pd.concat([df_repartidores, n_u], ignore_index=True)
                         df_repartidores.to_excel("repartidores.xlsx", index=False)
-                        st.success(f"Repartidor {f_nom} registrado.")
-                        st.session_state['ultimo_alta'] = {'cel': f_cel, 'nom': f_nom, 'user': f_user, 'pass': f_pass}
+                        st.session_state['msg_whatsapp'] = {'cel': f_cel, 'txt': f"Alta en Agua Origen. Usuario: {f_user} | Clave: {f_pass}"}
+                        st.success("Registrado correctamente.")
 
-            # NOTIFICACIÓN DE ALTA
-            if 'ultimo_alta' in st.session_state:
-                u = st.session_state['ultimo_alta']
-                msg_alta = f"Hola {u['nom']}, bienvenido a Agua Origen. Tu usuario: {u['user']} | Clave: {u['pass']} | Acceso: {URL_APP}"
-                st.link_button(f"📲 Notificar ALTA a {u['nom']}", f"https://wa.me/51{u['cel']}?text={msg_alta.replace(' ', '%20')}")
+            if 'msg_whatsapp' in st.session_state:
+                m = st.session_state['msg_whatsapp']
+                st.link_button("📲 Enviar Accesos por WhatsApp", f"https://wa.me/51{m['cel']}?text={m['txt'].replace(' ', '%20')}")
 
             st.divider()
             for i, r in df_repartidores.iterrows():
-                c_n, c_e, c_b = st.columns([3, 2, 2])
-                c_n.write(f"**{r['Nombre']}** ({r['Placa']})")
+                c1, c2, c3 = st.columns([3, 2, 2])
+                c1.write(f"**{r['Nombre']}** ({r['Placa']})")
                 if r['Estado'] == 'Activo':
-                    if c_b.button("Dar de BAJA", key=f"bj_{i}"):
+                    if c3.button("Dar de BAJA", key=f"baja_{i}"):
                         df_repartidores.at[i, 'Estado'] = 'Inactivo'
                         df_repartidores.to_excel("repartidores.xlsx", index=False)
-                        msg_baja = f"Hola {r['Nombre']}, has sido dado de BAJA en el sistema Agua Origen."
-                        st.session_state['ultimo_baja'] = {'cel': r['Celular'], 'nom': r['Nombre'], 'msg': msg_baja}
-                        st.rerun()
+                        st.warning(f"{r['Nombre']} Inactivado. Notifica por WhatsApp.")
+                        st.link_button("📲 Notificar Baja", f"https://wa.me/51{r['Celular']}?text=Se%20te%20informa%20la%20BAJA%20del%20sistema.")
                 else:
-                    c_e.write("🔴 Inactivo")
-                    if c_b.button("Reactivar", key=f"re_{i}"):
+                    c2.write("🔴 Inactivo")
+                    if c3.button("Reactivar", key=f"re_{i}"):
                         df_repartidores.at[i, 'Estado'] = 'Activo'
                         df_repartidores.to_excel("repartidores.xlsx", index=False)
                         st.rerun()
-            
-            if 'ultimo_baja' in st.session_state:
-                ub = st.session_state['ultimo_baja']
-                st.link_button(f"📲 Notificar BAJA a {ub['nom']}", f"https://wa.me/51{ub['cel']}?text={ub['msg'].replace(' ', '%20')}")
 
         with t2:
             st.subheader("Salida de Planta")
-            # ... (Lógica de carga sin cambios)
+            # ... (Lógica de carga planta)
 
         with t3:
             st.subheader("Liquidación de Envases")
-            # ... (Lógica de liquidación vinculada al repartidor)
+            # ... (Lógica de liquidación responsable)

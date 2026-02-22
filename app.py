@@ -22,7 +22,6 @@ def cargar_excel(archivo, columnas):
             return pd.DataFrame(columns=columnas)
     return pd.DataFrame(columns=columnas)
 
-# Inicialización de DataFrames
 df_ventas = cargar_excel("datos_agua.xlsx", ['Fecha', 'Cliente', 'Celular', 'Cantidad', 'Repartidor', 'Estado', 'Ubicacion'])
 df_inv = cargar_excel("inventario.xlsx", ['Insumo', 'Cantidad_Actual'])
 df_repartidores = cargar_excel("repartidores.xlsx", ['Nombre', 'Usuario', 'Clave', 'DNI', 'Celular', 'Placa', 'Bidones_Planta', 'Estado'])
@@ -52,7 +51,6 @@ if rol == "Cliente (Pedidos)":
             coords = f"{loc['coords']['latitude']},{loc['coords']['longitude']}"
             repartidores_activos = df_repartidores[df_repartidores['Estado'] == 'Activo']['Nombre'].tolist()
             if repartidores_activos:
-                # Asignación por carga de trabajo (Round Robin simple)
                 pendientes = [len(df_ventas[(df_ventas['Repartidor'] == r) & (df_ventas['Estado'] == 'Pendiente')]) for r in repartidores_activos]
                 asignado = repartidores_activos[pendientes.index(min(pendientes))]
                 
@@ -69,14 +67,12 @@ elif rol == "Repartidor":
     p_i = st.sidebar.text_input("Contraseña", type="password")
     
     if u_i and p_i:
-        # Validación de credenciales
         user_match = df_repartidores[(df_repartidores['Usuario'].astype(str) == u_i) & (df_repartidores['Clave'].astype(str) == p_i)]
         
         if not user_match.empty:
             nombre_rep = user_match.iloc[0]['Nombre']
             st.header(f"🚚 Panel de {nombre_rep}")
             
-            # Métricas de control
             entregados = df_ventas[(df_ventas['Repartidor'] == nombre_rep) & (df_ventas['Estado'] == 'Entregado')]['Cantidad'].sum()
             c1, c2 = st.columns(2)
             c1.metric("Llevados de Planta", f"{user_match.iloc[0]['Bidones_Planta']}")
@@ -89,73 +85,18 @@ elif rol == "Repartidor":
                 for idx, row in mis_pendientes.iterrows():
                     with st.expander(f"📍 Cliente: {row['Cliente']} ({row['Cantidad']} bidones)"):
                         st.write(f"📞 WhatsApp: {row['Celular']}")
-                        # Ubicación Google Maps
-                        maps_url = f"https://www.google.com/maps?q={row['Ubicacion']}"
-                        st.link_button("🌐 Ver en Google Maps", maps_url)
+                        
+                        # CORRECCIÓN PARA GOOGLE MAPS EN CELULARES
+                        maps_url = f"https://www.google.com/maps/search/?api=1&query={row['Ubicacion']}"
+                        st.link_button("🌐 Ver en Google Maps (GPS)", maps_url)
                         
                         st.markdown("---")
                         if st.button(f"✅ Confirmar Entrega", key=f"ok_{idx}"):
                             df_ventas.at[idx, 'Estado'] = 'Entregado'
                             df_ventas.to_excel("datos_agua.xlsx", index=False)
-                            # Descuento de insumos
                             for ins in ['Tapas', 'Etiquetas', 'Precintos termo encogibles']:
                                 df_inv.loc[df_inv['Insumo'] == ins, 'Cantidad_Actual'] -= row['Cantidad']
                             df_inv.to_excel("inventario.xlsx", index=False)
                             st.rerun()
             else:
-                st.info("No tienes pedidos pendientes.")
-        else:
-            st.error("Credenciales incorrectas.")
-
-# --- MÓDULO 3: ADMINISTRADOR (GESTIÓN) ---
-elif rol == "Administrador":
-    clave_adm = st.sidebar.text_input("Contraseña Maestra", type="password")
-    if clave_adm == "admin123":
-        t1, t2, t3 = st.tabs(["👥 Usuarios", "🏭 Planta", "💸 Liquidación"])
-        
-        with t1:
-            st.subheader("Alta de Repartidores")
-            with st.form("alta_repartidor"):
-                f_nom = st.text_input("Nombre y Apellido")
-                f_dni = st.text_input("DNI")
-                f_cel = st.text_input("Celular")
-                f_user = st.text_input("Usuario")
-                f_pass = st.text_input("Contraseña")
-                if st.form_submit_button("Registrar y Enviar Acceso"):
-                    if f_dni in df_repartidores['DNI'].astype(str).values:
-                        st.error("Este DNI ya está registrado.")
-                    elif f_nom and f_user and f_dni:
-                        n_u = pd.DataFrame([{'Nombre': f_nom, 'Usuario': f_user, 'Clave': f_pass, 'DNI': f_dni, 'Celular': f_cel, 'Bidones_Planta': 0, 'Estado': 'Activo'}])
-                        df_repartidores = pd.concat([df_repartidores, n_u], ignore_index=True)
-                        df_repartidores.to_excel("repartidores.xlsx", index=False)
-                        st.success("Usuario creado con éxito.")
-                        # Link WhatsApp
-                        msg = f"Bienvenido a Agua Origen. Accede aquí: {URL_APP} | Usuario: {f_user} | Clave: {f_pass}"
-                        st.link_button("📲 Enviar Accesos", f"https://wa.me/51{f_cel}?text={msg.replace(' ', '%20')}")
-            st.dataframe(df_repartidores)
-
-        with t2:
-            st.subheader("Salida de Planta")
-            if not df_repartidores.empty:
-                rep_sel = st.selectbox("Seleccionar Repartidor", df_repartidores['Nombre'].tolist())
-                cant_c = st.number_input("Bidones cargados", min_value=1)
-                if st.button("Registrar Carga"):
-                    df_repartidores.loc[df_repartidores['Nombre'] == rep_sel, 'Bidones_Planta'] += cant_c
-                    df_repartidores.to_excel("repartidores.xlsx", index=False)
-                    st.success("Carga registrada.")
-
-        with t3:
-            st.subheader("Liquidación de Envases")
-            for idx_r, r_row in df_repartidores.iterrows():
-                v_nom = r_row['Nombre']
-                deuda = df_ventas[(df_ventas['Repartidor'] == v_nom) & (df_ventas['Estado'] == 'Entregado')]['Cantidad'].sum()
-                if deuda > 0:
-                    st.write(f"**{v_nom}** tiene pendiente la entrega de **{deuda}** envases.")
-                    if st.button(f"Liquidar a {v_nom}", key=f"liq_{idx_r}"):
-                        df_ventas.loc[(df_ventas['Repartidor'] == v_nom) & (df_ventas['Estado'] == 'Entregado'), 'Estado'] = 'Completado'
-                        df_ventas.to_excel("datos_agua.xlsx", index=False)
-                        df_repartidores.at[idx_r, 'Bidones_Planta'] = 0
-                        df_repartidores.to_excel("repartidores.xlsx", index=False)
-                        st.rerun()
-    else:
-        st.error("Acceso denegado.")
+                st.

@@ -58,7 +58,7 @@ if rol == "Cliente (Pedidos)":
                 df_ventas.to_excel("datos_agua.xlsx", index=False)
                 st.success(f"¡Pedido recibido! {asignado} te visitará pronto.")
 
-# --- PORTAL DEL REPARTIDOR (CORREGIDO PARA MOSTRAR PEDIDOS) ---
+# --- PORTAL DEL REPARTIDOR ---
 elif rol == "Repartidor":
     u_i = st.sidebar.text_input("Usuario")
     p_i = st.sidebar.text_input("Contraseña", type="password")
@@ -70,7 +70,6 @@ elif rol == "Repartidor":
             nombre_rep = user_data.iloc[0]['Nombre']
             st.header(f"🚚 Panel de {nombre_rep}")
             
-            # Métricas rápidas
             entregados = df_ventas[(df_ventas['Repartidor'] == nombre_rep) & (df_ventas['Estado'] == 'Entregado')]['Cantidad'].sum()
             c1, c2 = st.columns(2)
             c1.metric("Llevados de Planta", f"{user_data.iloc[0]['Bidones_Planta']}")
@@ -83,33 +82,4 @@ elif rol == "Repartidor":
                 for i, row in mis_pendientes.iterrows():
                     with st.expander(f"📍 Cliente: {row['Cliente']} ({row['Cantidad']} bidones)"):
                         st.write(f"📞 Celular: {row['Celular']}")
-                        
-                        # Botones de Acción
-                        col_gps, col_wa = st.columns(2)
-                        col_gps.link_button("🌐 Ver en Google Maps", f"https://www.google.com/maps?q={row['Ubicacion']}")
-                        msg_wa = f"Hola {row['Cliente']}, soy {nombre_rep} de Agua Origen. Estoy cerca con tu pedido."
-                        col_wa.link_button("📲 Avisar por WhatsApp", f"https://wa.me/51{row['Celular']}?text={msg_wa.replace(' ', '%20')}")
-                        
-                        st.markdown("---")
-                        col1, col2 = st.columns(2)
-                        if col1.button(f"✅ Marcar Entregado #{i}", key=f"ent_{i}"):
-                            df_ventas.at[i, 'Estado'] = 'Entregado'
-                            df_ventas.to_excel("datos_agua.xlsx", index=False)
-                            # Descuento automático de stock
-                            for ins in ['Tapas', 'Etiquetas', 'Precintos termo encogibles']:
-                                df_inv.loc[df_inv['Insumo'] == ins, 'Cantidad_Actual'] -= row['Cantidad']
-                            df_inv.to_excel("inventario.xlsx", index=False)
-                            st.success("¡Entrega confirmada!")
-                            st.rerun()
-                            
-                        if col2.button(f"❌ No Entregado #{i}", key=f"no_ent_{i}"):
-                            # Se mantiene en pendiente o se puede crear un estado 'Fallido'
-                            st.warning("Pedido marcado como no entregado.")
-            else:
-                st.info("No tienes pedidos asignados por ahora. ¡Buen trabajo!")
-        else:
-            st.error("Credenciales incorrectas.")
-
-# --- PORTAL ADMINISTRADOR (Se mantiene igual) ---
-elif rol == "Administrador":
-    # ... (El código de Administrador que ya tienes funcionando)
+                        st.link_button("🌐 Ver en Google Maps",

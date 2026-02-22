@@ -5,7 +5,7 @@ import os
 from PIL import Image
 from streamlit_js_eval import get_geolocation
 
-# 1. CONFIGURACIÓN
+# 1. CONFIGURACIÓN E INTERFAZ
 try:
     img = Image.open("logo.png")
 except Exception:
@@ -13,7 +13,7 @@ except Exception:
 
 st.set_page_config(page_title="Agua Origen - Sistema", page_icon="💧", layout="wide")
 
-# 2. GESTIÓN DE DATOS
+# 2. CAPA DE DATOS (PERSISTENCIA EXCEL)
 def cargar_excel(archivo, columnas):
     if os.path.exists(archivo):
         try:
@@ -26,7 +26,7 @@ df_ventas = cargar_excel("datos_agua.xlsx", ['Fecha', 'Cliente', 'Celular', 'Can
 df_inv = cargar_excel("inventario.xlsx", ['Insumo', 'Cantidad_Actual'])
 df_repartidores = cargar_excel("repartidores.xlsx", ['Nombre', 'Usuario', 'Clave', 'DNI', 'Celular', 'Placa', 'Bidones_Planta', 'Estado'])
 
-# 3. INTERFAZ
+# 3. NAVEGACIÓN LATERAL
 if img:
     st.sidebar.image(img, width=120)
 else:
@@ -36,14 +36,14 @@ st.sidebar.markdown("---")
 rol = st.sidebar.selectbox("Acceso de Usuario", ["Cliente (Pedidos)", "Repartidor", "Administrador"])
 URL_APP = "https://agua-origen-tambopata.streamlit.app"
 
-# --- PORTAL DEL CLIENTE ---
+# --- MÓDULO 1: PORTAL DEL CLIENTE ---
 if rol == "Cliente (Pedidos)":
-    st.header("💧 Realiza tu pedido")
+    st.header("💧 Realiza tu pedido - Agua Origen")
     with st.form("form_cliente", clear_on_submit=True):
         nombre = st.text_input("Tu Nombre")
-        celular = st.text_input("Celular (WhatsApp)")
-        cantidad = st.number_input("¿Cuántos bidones?", min_value=1, step=1)
-        st.write("📍 Captura tu ubicación:")
+        celular = st.text_input("Número de Celular (WhatsApp)")
+        cantidad = st.number_input("¿Cuántos bidones necesitas?", min_value=1, step=1)
+        st.write("📍 Captura tu ubicación para la entrega:")
         loc = get_geolocation()
         enviar = st.form_submit_button("Confirmar Pedido")
         
@@ -51,56 +51,72 @@ if rol == "Cliente (Pedidos)":
             coords = f"{loc['coords']['latitude']},{loc['coords']['longitude']}"
             repartidores_activos = df_repartidores[df_repartidores['Estado'] == 'Activo']['Nombre'].tolist()
             if repartidores_activos:
-                pendientes = [len(df_ventas[(df_ventas['Repartidor'] == r) & (df_ventas['Estado'] == 'Pendiente')]) for r in repartidores_activos]
-                asignado = repartidores_activos[pendientes.index(min(pendientes))]
+                pendientes_count = [len(df_ventas[(df_ventas['Repartidor'] == r) & (df_ventas['Estado'] == 'Pendiente')]) for r in repartidores_activos]
+                asignado = repartidores_activos[pendientes_count.index(min(pendientes_count))]
+                
                 nuevo_p = pd.DataFrame([{'Fecha': datetime.now(), 'Cliente': nombre, 'Celular': celular, 'Cantidad': cantidad, 'Repartidor': asignado, 'Estado': 'Pendiente', 'Ubicacion': coords}])
                 df_ventas = pd.concat([df_ventas, nuevo_p], ignore_index=True)
                 df_ventas.to_excel("datos_agua.xlsx", index=False)
-                st.success(f"Pedido recibido. Asignado a: {asignado}")
+                st.success(f"¡Pedido recibido! El repartidor {asignado} te visitará pronto.")
+            else:
+                st.error("No hay repartidores activos disponibles.")
 
-# --- PORTAL DEL REPARTIDOR ---
+# --- MÓDULO 2: PORTAL DEL REPARTIDOR ---
 elif rol == "Repartidor":
+    st.sidebar.subheader("Acceso Repartidor")
     u_i = st.sidebar.text_input("Usuario")
     p_i = st.sidebar.text_input("Contraseña", type="password")
     
     if u_i and p_i:
         user_match = df_repartidores[(df_repartidores['Usuario'].astype(str) == u_i) & (df_repartidores['Clave'].astype(str) == p_i)]
+        
         if not user_match.empty:
             nombre_rep = user_match.iloc[0]['Nombre']
-            placa_rep = user_match.iloc[0]['Placa'] #
+            placa_rep = user_match.iloc[0]['Placa']
             st.header(f"🚚 Panel de {nombre_rep} (Placa: {placa_rep})")
             
-            entregados = df_ventas[(df_ventas['Repartidor'] == nombre_rep) & (df_ventas['Estado'] == 'Entregado')]['Cantidad'].sum()
+            entregados_total = df_ventas[(df_ventas['Repartidor'] == nombre_rep) & (df_ventas['Estado'] == 'Entregado')]['Cantidad'].sum()
             c1, c2 = st.columns(2)
-            c1.metric("En Custodia (Planta)", f"{user_match.iloc[0]['Bidones_Planta']}")
-            c2.metric("Por Liquidar", f"{entregados}")
+            c1.metric("Bidones en Planta", f"{user_match.iloc[0]['Bidones_Planta']}")
+            c2.metric("Por Liquidar", f"{entregados_total}")
 
-            st.subheader("📋 Pedidos Asignados")
+            st.subheader("📋 Pedidos Pendientes")
             mis_pendientes = df_ventas[(df_ventas['Repartidor'] == nombre_rep) & (df_ventas['Estado'] == 'Pendiente')]
+            
             for idx, row in mis_pendientes.iterrows():
-                with st.expander(f"📍 Cliente: {row['Cliente']}"):
-                    st.link_button("🌐 Ver en Maps", f"https://www.google.com/maps/search/?api=1&query={row['Ubicacion']}")
-                    if st.button(f"✅ Entregado", key=f"ent_{idx}"):
+                with st.expander(f"📍 Cliente: {row['Cliente']} | {row['Cantidad']} Bidón(es)"):
+                    st.write(f"📞 WhatsApp: {row['Celular']}")
+                    
+                    # --- SOLUCIÓN GPS DEFINITIVA PARA MÓVILES ---
+                    # Usa el protocolo de navegación directa de Google Maps
+                    maps_url = f"https://www.google.com/maps/dir/?api=1&destination={row['Ubicacion']}&travelmode=driving"
+                    st.link_button("🌐 INICIAR NAVEGACIÓN GPS", maps_url)
+                    
+                    st.markdown("---")
+                    if st.button(f"✅ Confirmar Entrega", key=f"ent_{idx}"):
                         df_ventas.at[idx, 'Estado'] = 'Entregado'
                         df_ventas.to_excel("datos_agua.xlsx", index=False)
+                        for ins in ['Tapas', 'Etiquetas', 'Precintos termo encogibles']:
+                            df_inv.loc[df_inv['Insumo'] == ins, 'Cantidad_Actual'] -= row['Cantidad']
+                        df_inv.to_excel("inventario.xlsx", index=False)
                         st.rerun()
         else:
             st.error("Credenciales incorrectas.")
 
-# --- PORTAL ADMINISTRADOR ---
+# --- MÓDULO 3: PORTAL ADMINISTRADOR ---
 elif rol == "Administrador":
     clave_adm = st.sidebar.text_input("Clave Maestra", type="password")
     if clave_adm == "admin123":
-        t1, t2, t3 = st.tabs(["👥 Gestión de Repartidores", "🏭 Planta", "💸 Liquidación"])
+        t1, t2, t3 = st.tabs(["👥 Repartidores", "🏭 Planta", "💸 Liquidación"])
         
         with t1:
-            st.subheader("Registrar Nuevo Repartidor")
-            with st.form("registro_profesional"):
+            st.subheader("Gestión de Personal")
+            with st.form("registro_rep"):
                 col1, col2 = st.columns(2)
                 f_nom = col1.text_input("Nombre y Apellido")
                 f_dni = col2.text_input("DNI")
                 f_cel = col1.text_input("Celular")
-                f_pla = col2.text_input("Placa del Vehículo") #
+                f_pla = col2.text_input("Placa del Vehículo")
                 f_user = col1.text_input("Usuario")
                 f_pass = col2.text_input("Contraseña")
                 
@@ -112,41 +128,40 @@ elif rol == "Administrador":
                         df_repartidores = pd.concat([df_repartidores, n_u], ignore_index=True)
                         df_repartidores.to_excel("repartidores.xlsx", index=False)
                         st.success(f"Repartidor {f_nom} registrado.")
-                        st.session_state['ultimo_registro'] = {'cel': f_cel, 'user': f_user, 'pass': f_pass, 'nom': f_nom}
+                        st.session_state['ultimo_alta'] = {'cel': f_cel, 'nom': f_nom, 'user': f_user, 'pass': f_pass}
 
-            # BOTÓN DE NOTIFICACIÓN DE ALTA
-            if 'ultimo_registro' in st.session_state:
-                reg = st.session_state['ultimo_registro']
-                msg_alta = f"Hola {reg['nom']}, has sido dado de ALTA en Agua Origen. Acceso: {URL_APP} | Usuario: {reg['user']} | Clave: {reg['pass']}"
-                st.link_button(f"📲 Notificar ALTA a {reg['nom']}", f"https://wa.me/51{reg['cel']}?text={msg_alta.replace(' ', '%20')}")
+            # NOTIFICACIÓN DE ALTA
+            if 'ultimo_alta' in st.session_state:
+                u = st.session_state['ultimo_alta']
+                msg_alta = f"Hola {u['nom']}, bienvenido a Agua Origen. Tu usuario: {u['user']} | Clave: {u['pass']} | Acceso: {URL_APP}"
+                st.link_button(f"📲 Notificar ALTA a {u['nom']}", f"https://wa.me/51{u['cel']}?text={msg_alta.replace(' ', '%20')}")
 
             st.divider()
-            st.subheader("Lista de Repartidores")
             for i, r in df_repartidores.iterrows():
-                c_nom, c_est, c_acc = st.columns([3, 2, 2])
-                c_nom.write(f"**{r['Nombre']}** ({r['Placa']})")
-                c_est.write(f"Estado: {r['Estado']}")
-                
+                c_n, c_e, c_b = st.columns([3, 2, 2])
+                c_n.write(f"**{r['Nombre']}** ({r['Placa']})")
                 if r['Estado'] == 'Activo':
-                    if c_acc.button("Dar de BAJA", key=f"baja_{i}"):
+                    if c_b.button("Dar de BAJA", key=f"bj_{i}"):
                         df_repartidores.at[i, 'Estado'] = 'Inactivo'
                         df_repartidores.to_excel("repartidores.xlsx", index=False)
-                        msg_baja = f"Hola {r['Nombre']}, se te informa que has sido dado de BAJA en el sistema Agua Origen."
-                        # Generamos el link de baja inmediatamente
-                        st.warning(f"Baja procesada. Notifica al repartidor:")
-                        st.link_button(f"📲 Notificar BAJA a {r['Nombre']}", f"https://wa.me/51{r['Celular']}?text={msg_baja.replace(' ', '%20')}")
+                        msg_baja = f"Hola {r['Nombre']}, has sido dado de BAJA en el sistema Agua Origen."
+                        st.session_state['ultimo_baja'] = {'cel': r['Celular'], 'nom': r['Nombre'], 'msg': msg_baja}
+                        st.rerun()
                 else:
-                    if c_acc.button("Reactivar", key=f"alta_{i}"):
+                    c_e.write("🔴 Inactivo")
+                    if c_b.button("Reactivar", key=f"re_{i}"):
                         df_repartidores.at[i, 'Estado'] = 'Activo'
                         df_repartidores.to_excel("repartidores.xlsx", index=False)
                         st.rerun()
+            
+            if 'ultimo_baja' in st.session_state:
+                ub = st.session_state['ultimo_baja']
+                st.link_button(f"📲 Notificar BAJA a {ub['nom']}", f"https://wa.me/51{ub['cel']}?text={ub['msg'].replace(' ', '%20')}")
 
         with t2:
-            st.subheader("Carga Planta")
-            # ... (Lógica de carga planta sin cambios)
+            st.subheader("Salida de Planta")
+            # ... (Lógica de carga sin cambios)
 
         with t3:
-            st.subheader("Liquidación")
-            # ... (Lógica de liquidación vinculada al repartidor responsable)
-    else:
-        st.error("Acceso administrador denegado.")
+            st.subheader("Liquidación de Envases")
+            # ... (Lógica de liquidación vinculada al repartidor)

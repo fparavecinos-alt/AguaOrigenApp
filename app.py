@@ -22,7 +22,13 @@ df_ventas = cargar_excel("datos_agua.xlsx", ['Fecha', 'Cliente', 'Celular', 'Can
 df_inv = cargar_excel("inventario.xlsx", ['Insumo', 'Cantidad_Actual'])
 
 # 3. SISTEMA DE SEGURIDAD
-st.sidebar.image(img, width=100) if img else None
+# --- Lógica del Logo y Menú (Reemplazo de líneas 25 y 26) ---
+if img:
+    st.sidebar.image(img, width=100)
+else:
+    st.sidebar.title("💧 Agua Origen")
+
+st.sidebar.markdown("---")
 rol = st.sidebar.selectbox("Acceso de Usuario", ["Cliente (Pedidos)", "Repartidor", "Administrador"])
 
 # --- PORTAL DEL CLIENTE (PÚBLICO) ---

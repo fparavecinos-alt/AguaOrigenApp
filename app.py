@@ -1,19 +1,19 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 from PIL import Image
 from streamlit_js_eval import get_geolocation
 
-# 1. CONFIGURACIÓN Y LOGO
+# 1. CONFIGURACIÓN INICIAL
 try:
     img = Image.open("logo.png")
 except:
     img = None
 
-st.set_page_config(page_title="Agua Origen - Sistema", page_icon="💧")
+st.set_page_config(page_title="Agua Origen - Sistema", page_icon="💧", layout="wide")
 
-# 2. CARGA DE DATOS
+# 2. GESTIÓN DE DATOS (PERSISTENCIA)
 def cargar_excel(archivo, columnas):
     if os.path.exists(archivo):
         try:
@@ -28,7 +28,7 @@ df_repartidores = cargar_excel("repartidores.xlsx", ['Nombre', 'Usuario', 'Clave
 
 # 3. INTERFAZ LATERAL
 if img:
-    st.sidebar.image(img, width=100)
+    st.sidebar.image(img, width=120)
 else:
     st.sidebar.title("💧 Agua Origen")
 
@@ -41,9 +41,9 @@ if rol == "Cliente (Pedidos)":
     st.header("💧 Realiza tu pedido - Agua Origen")
     with st.form("form_cliente"):
         nombre = st.text_input("Tu Nombre")
-        celular_c = st.text_input("Número de Celular")
-        cantidad = st.number_input("¿Cuántos bidones?", min_value=1, step=1)
-        st.write("📍 Ubicación para la entrega:")
+        celular_c = st.text_input("Número de Celular (WhatsApp)")
+        cantidad = st.number_input("¿Cuántos bidones necesitas?", min_value=1, step=1)
+        st.write("📍 Presiona para capturar tu ubicación actual:")
         loc = get_geolocation()
         enviar = st.form_submit_button("Confirmar Pedido")
         
@@ -56,30 +56,65 @@ if rol == "Cliente (Pedidos)":
                 nuevo_p = pd.DataFrame([{'Fecha': datetime.now(), 'Cliente': nombre, 'Celular': celular_c, 'Cantidad': cantidad, 'Repartidor': asignado, 'Estado': 'Pendiente', 'Ubicacion': coords}])
                 df_ventas = pd.concat([df_ventas, nuevo_p], ignore_index=True)
                 df_ventas.to_excel("datos_agua.xlsx", index=False)
-                st.success(f"¡Pedido recibido! {asignado} te visitará pronto.")
+                st.success(f"¡Pedido recibido! El repartidor {asignado} te visitará pronto.")
+            else:
+                st.error("No hay repartidores activos en el sistema.")
 
 # --- PORTAL DEL REPARTIDOR ---
 elif rol == "Repartidor":
+    st.sidebar.subheader("Inicio de Sesión")
     u_i = st.sidebar.text_input("Usuario")
     p_i = st.sidebar.text_input("Contraseña", type="password")
     
     if u_i and p_i:
-        user_data = df_repartidores[(df_repartidores['Usuario'].astype(str) == u_i) & (df_repartidores['Clave'].astype(str) == p_i)]
+        user_match = df_repartidores[(df_repartidores['Usuario'].astype(str) == u_i) & (df_repartidores['Clave'].astype(str) == p_i)]
         
-        if not user_data.empty:
-            nombre_rep = user_data.iloc[0]['Nombre']
+        if not user_match.empty:
+            nombre_rep = user_match.iloc[0]['Nombre']
             st.header(f"🚚 Panel de {nombre_rep}")
             
-            entregados = df_ventas[(df_ventas['Repartidor'] == nombre_rep) & (df_ventas['Estado'] == 'Entregado')]['Cantidad'].sum()
+            # Métricas de control individual
+            entregados_hoy = df_ventas[(df_ventas['Repartidor'] == nombre_rep) & (df_ventas['Estado'] == 'Entregado')]['Cantidad'].sum()
             c1, c2 = st.columns(2)
-            c1.metric("Llevados de Planta", f"{user_data.iloc[0]['Bidones_Planta']}")
-            c2.metric("Bidones por Devolver", f"{entregados}")
+            c1.metric("Llevados de Planta", f"{user_match.iloc[0]['Bidones_Planta']}")
+            c2.metric("Bidones por Devolver (Ventas)", f"{entregados_hoy}")
 
             st.subheader("📋 Mis Pedidos Pendientes")
             mis_pendientes = df_ventas[(df_ventas['Repartidor'] == nombre_rep) & (df_ventas['Estado'] == 'Pendiente')]
             
             if not mis_pendientes.empty:
-                for i, row in mis_pendientes.iterrows():
-                    with st.expander(f"📍 Cliente: {row['Cliente']} ({row['Cantidad']} bidones)"):
-                        st.write(f"📞 Celular: {row['Celular']}")
-                        st.link_button("🌐 Ver en Google Maps",
+                for idx, row in mis_pendientes.iterrows():
+                    with st.expander(f"📍 Cliente: {row['Cliente']} - Cantidad: {row['Cantidad']}"):
+                        st.write(f"📞 WhatsApp: {row['Celular']}")
+                        # BOTÓN DE GOOGLE MAPS CORREGIDO
+                        st.link_button("🌐 Ver Ubicación en Google Maps", f"https://www.google.com/maps?q={row['Ubicacion']}")
+                        
+                        st.markdown("---")
+                        col_ok, col_no = st.columns(2)
+                        if col_ok.button(f"✅ Marcar Entregado", key=f"btn_ent_{idx}"):
+                            df_ventas.at[idx, 'Estado'] = 'Entregado'
+                            df_ventas.to_excel("datos_agua.xlsx", index=False)
+                            # Descuento de inventario automático
+                            for ins in ['Tapas', 'Etiquetas', 'Precintos termo encogibles']:
+                                df_inv.loc[df_inv['Insumo'] == ins, 'Cantidad_Actual'] -= row['Cantidad']
+                            df_inv.to_excel("inventario.xlsx", index=False)
+                            st.rerun()
+                            
+                        if col_no.button(f"❌ No se pudo entregar", key=f"btn_fail_{idx}"):
+                            st.warning("El pedido permanece en lista como pendiente.")
+            else:
+                st.info("No tienes pedidos pendientes asignados.")
+        else:
+            st.error("Usuario o contraseña incorrectos.")
+    else:
+        st.info("Ingresa tus credenciales en el menú lateral para ver tu ruta.")
+
+# --- PORTAL ADMINISTRADOR ---
+elif rol == "Administrador":
+    clave_adm = st.sidebar.text_input("Contraseña Maestra", type="password")
+    if clave_adm == "admin123":
+        t1, t2, t3 = st.tabs(["👥 Usuarios", "🏭 Carga Planta", "💸 Liquidación"])
+        
+        with t1:
+            st.subheader("Registrar Repartidor")
+            with st.form("alta_

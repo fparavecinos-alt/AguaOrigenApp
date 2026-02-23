@@ -3,4 +3,3 @@ pandas
 openpyxl
 Pillow
 streamlit-js-eval
-fpdf2

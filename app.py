@@ -206,10 +206,18 @@ elif rol == "Repartidor":
                     partes = ub.split(",")
                     lat = partes[0].strip() if partes else "0"
                     lon = partes[-1].strip() if len(partes) > 1 else "0"
-                    url_nativa = f"google.navigation:q={lat},{lon}"
-                    url_web = f"https://www.google.com/maps/dir/?api=1&destination={lat},{lon}&travelmode=driving"
-                    st.link_button("🚀 Abrir en Maps (app)", url_nativa)
-                    st.link_button("🌐 Abrir en navegador", url_web)
+                    try:
+                        lat_f, lon_f = float(lat), float(lon)
+                        ubicacion_ok = (lat_f != 0 or lon_f != 0)
+                    except (ValueError, TypeError):
+                        ubicacion_ok = False
+                    if ubicacion_ok:
+                        url_maps_search = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+                        url_maps_dir = f"https://www.google.com/maps/dir/?api=1&destination={lat},{lon}&travelmode=driving"
+                        st.link_button("🚀 Abrir en Maps (app)", url_maps_search)
+                        st.link_button("🌐 Abrir en navegador", url_maps_dir)
+                    else:
+                        st.caption("⚠️ Ubicación no disponible (coordenadas no registradas)")
                     cantidad_bidones = int(r['Cantidad'])
                     msg_texto = mensaje_whatsapp_arribo(r['Cliente'], nom_rep, cantidad_bidones)
                     msg = urllib.parse.quote(msg_texto)
